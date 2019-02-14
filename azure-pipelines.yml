@@ -1,0 +1,126 @@
+# no trigger config here, this is handled at Azure Pipelines interface
+
+steps:
+- checkout: none
+
+- script: |
+    git config --global user.email 'nanoframework@outlook.com'
+    git config --global user.name 'nfbot'
+  displayName: Setup git identity
+
+- task: PowerShell@2
+  inputs:
+      targetType: 'inline'
+      script: |
+
+          Write-Host "Downloading ChibiOS git repo from storage..."
+
+          $url = "https://nanoframeworkstorage.blob.core.windows.net/chibios-git-repo/chibios-svn-repo.7z"
+          $output = [System.IO.Path]::Combine("$(Agent.TempDirectory)", "chibios-svn-repo-origin.7z")
+
+          (new-object System.Net.WebClient).DownloadFile($url, $output)
+
+      errorActionPreference: 'stop'
+      failOnStderr: 'true'
+  displayName: Downloading ChibiOS repo from Azure Storage
+
+- task: ExtractFiles@1
+  inputs:
+    archiveFilePatterns: '$(Agent.TempDirectory)/chibios-svn-repo-origin.7z'
+    destinationFolder: '$(Agent.TempDirectory)'
+    cleanDestinationFolder: false
+  displayName: Extracting ChibiOS repo
+
+- task: PowerShell@2
+  inputs:
+      targetType: 'inline'
+      script: |
+
+          Write-Host "Downloading git for windows v2.19.1"
+
+          # take care of error about SSL/TLS 
+          [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11"
+
+          $url = "https://github.com/git-for-windows/git/releases/download/v2.19.1.windows.1/PortableGit-2.19.1-64-bit.7z.exe"
+          $output = [System.IO.Path]::Combine("$(Agent.TempDirectory)", "PortableGit.7z")
+
+          (new-object System.Net.WebClient).DownloadFile($url, $output)
+
+      errorActionPreference: 'stop'
+      failOnStderr: 'true'
+  displayName: Downloading git for windows
+
+- task: ExtractFiles@1
+  inputs:
+    archiveFilePatterns: '$(Agent.TempDirectory)/PortableGit.7z'
+    destinationFolder: '$(Agent.TempDirectory)/my_git'
+    cleanDestinationFolder: false
+  displayName: Extracting git for windows
+
+
+- task: PowerShell@2
+  inputs:
+      targetType: 'inline'
+      script: |
+
+          # check git versions
+          git --version
+          $(Agent.TempDirectory)\my_git\bin\git.exe --version
+
+          # compute authorization header in format "AUTHORIZATION: basic 'encoded token'"
+          # 'encoded token' is the Base64 of the string "nfbot:personal-token"
+          $auth = "basic $([System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("nfbot:$(GitHubToken)"))))"
+
+          # config git
+          git config user.email 'nanoframework@outlook.com'
+          git config user.name 'nfbot'
+
+          # checkout master branch
+          git checkout master
+
+          # fetch changes from SVN repo
+          $(Agent.TempDirectory)\my_git\bin\git.exe svn fetch
+
+          # rebase with git repo
+          git rebase remotes/svn/trunk master
+          
+          # rebase with any changes from the repo
+          git pull --rebase
+
+          # need to add authorization extra header to be able to commit
+          git -c http.extraheader="AUTHORIZATION: $auth" push origin
+          
+          # checkout stable_18.2.x branch
+          git checkout stable_18.2.x
+          git rebase remotes/svn/stable_18.2.x stable_18.2.x
+          git -c http.extraheader="AUTHORIZATION: $auth" push origin
+    
+          # checkout stable_19.2.x branch
+          git checkout stable_19.1.x
+          git rebase remotes/svn/stable_19.1.x stable_19.1.x
+          git -c http.extraheader="AUTHORIZATION: $auth" push origin
+
+      workingDirectory: '$(Agent.TempDirectory)/chibios-svn' 
+      ignoreLASTEXITCODE: true
+      failOnStderr: false
+      
+  displayName: Update repository from ChibiOS official SVN
+
+- task: ArchiveFiles@2
+  inputs:
+    rootFolderOrFile: '$(Agent.TempDirectory)/chibios-svn' 
+    includeRootFolder: true
+    archiveType: '7z'
+    archiveFile: '$(Agent.TempDirectory)/chibios-svn-repo.7z'
+    replaceExistingArchive: true
+  displayName: Zip ChibiOS repo 
+
+# Copy files to Azure blob or VM(s)
+- task: AzureFileCopy@2
+  inputs:
+    azureSubscription: azure_eclo_solutions
+    storage: nanoframeworkstorage
+    sourcePath: '$(Agent.TempDirectory)/chibios-svn-repo.7z'
+    destination: AzureBlob
+    containerName: chibios-git-repo
+  displayName: Upload updated ChibiOS repo to Azure Storage
