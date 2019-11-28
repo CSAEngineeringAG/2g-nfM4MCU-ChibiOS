@@ -92,12 +92,22 @@ steps:
           
           # checkout stable_18.2.x branch
           git checkout stable_18.2.x
+
           git rebase remotes/svn/stable_18.2.x stable_18.2.x
+                    
+          # rebase with any changes from the repo
+          git pull --rebase
+
           git -c http.extraheader="AUTHORIZATION: $auth" push origin
     
           # checkout stable_19.2.x branch
           git checkout stable_19.1.x
+
           git rebase remotes/svn/stable_19.1.x stable_19.1.x
+                    
+          # rebase with any changes from the repo
+          git pull --rebase
+
           git -c http.extraheader="AUTHORIZATION: $auth" push origin
 
       workingDirectory: '$(Agent.TempDirectory)/chibios-svn' 
