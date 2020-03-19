@@ -55,7 +55,8 @@
 /**
  * @brief   Memory core descriptor.
  */
-memcore_t ch_memcore;
+memcore_t ch_memcore_ext; // heap in external RAM
+memcore_t ch_memcore_int; // heap in internal RAM
 
 /*===========================================================================*/
 /* Module local types.                                                       */
@@ -83,15 +84,21 @@ void _core_init(void) {
   extern uint8_t __heap_base__[];
   extern uint8_t __heap_end__[];
 
+  extern uint8_t __heap_int_base__[];
+  extern uint8_t __heap_int_end__[];
+
   /*lint -save -e9033 [10.8] Required cast operations.*/
-  ch_memcore.nextmem = __heap_base__;
-  ch_memcore.endmem  = __heap_end__;
+  ch_memcore_ext.nextmem = __heap_base__;
+  ch_memcore_ext.endmem  = __heap_end__;
+
+  ch_memcore_int.nextmem = __heap_int_base__;
+  ch_memcore_int.endmem = __heap_int_end__;
   /*lint restore*/
 #else
   static uint8_t static_heap[CH_CFG_MEMCORE_SIZE];
 
-  ch_memcore.nextmem = &static_heap[0];
-  ch_memcore.endmem  = &static_heap[CH_CFG_MEMCORE_SIZE];
+  ch_memcore_ext.nextmem = &static_heap[0];
+  ch_memcore_ext.endmem  = &static_heap[CH_CFG_MEMCORE_SIZE];
 #endif
 }
 
@@ -118,15 +125,25 @@ void *chCoreAllocAlignedWithOffsetI(size_t size,
   chDbgCheck(MEM_IS_VALID_ALIGNMENT(align));
 
   size = MEM_ALIGN_NEXT(size, align);
-  p = (uint8_t *)MEM_ALIGN_NEXT(ch_memcore.nextmem + offset, align);
+  p = (uint8_t *)MEM_ALIGN_NEXT(ch_memcore_int.nextmem + offset, align);
   next = p + size;
 
-  /* Considering also the case where there is numeric overflow.*/
-  if ((next > ch_memcore.endmem) || (next < ch_memcore.nextmem)) {
-    return NULL;
+  /* Considering the case where there is numeric overflow in internal RAM.*/
+  if ((next > ch_memcore_int.endmem) || (next < ch_memcore_int.nextmem)) {
+	// out of memory in internal RAM. try to allocate in external RAM...
+	p = (uint8_t *)MEM_ALIGN_NEXT(ch_memcore_ext.nextmem + offset, align);
+	next = p + size;
+	/* Considering also the case where there is numeric overflow in external RAM.*/
+	if ((next > ch_memcore_ext.endmem) || (next < ch_memcore_ext.nextmem)) {
+		// we are completely out of memory
+		return NULL;
+	}
+	ch_memcore_ext.nextmem = next;
   }
-
-  ch_memcore.nextmem = next;
+  else
+  {
+	ch_memcore_int.nextmem = next;
+  }
 
   return p;
 }
