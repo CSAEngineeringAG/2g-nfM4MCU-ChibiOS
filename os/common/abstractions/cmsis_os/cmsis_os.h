@@ -517,6 +517,8 @@ static inline osStatus osDelay(uint32_t millisec) {
   return osOK;
 }
 
+extern memory_heap_t internal_heap;
+
 #endif /* CMSIS_OS_H */
 
 /** @} */

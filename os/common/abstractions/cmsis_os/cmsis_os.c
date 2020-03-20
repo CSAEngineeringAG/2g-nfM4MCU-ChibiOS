@@ -40,6 +40,7 @@
 /*===========================================================================*/
 
 int32_t cmsis_os_started;
+memory_heap_t internal_heap;
 
 /*===========================================================================*/
 /* Module local types.                                                       */
@@ -85,7 +86,11 @@ osStatus osKernelInitialize(void) {
 
   cmsis_os_started = 0;
 
+  extern uint8_t __heap_int_base__[];
+  extern uint8_t __heap_int_end__[];
+
   chSysInit();
+  chHeapObjectInit(&internal_heap, __heap_int_base__, __heap_int_end__-__heap_int_base__);
   chThdSetPriority(HIGHPRIO);
 
   chPoolObjectInit(&sempool, sizeof(semaphore_t), chCoreAllocAlignedI);
@@ -117,7 +122,7 @@ osThreadId osThreadCreate(const osThreadDef_t *thread_def, void *argument) {
 
   size = thread_def->stacksize == 0 ? CMSIS_CFG_DEFAULT_STACK :
                                       thread_def->stacksize;
-  return (osThreadId)chThdCreateFromHeap(0,
+  return (osThreadId)chThdCreateFromHeap(&internal_heap,
                                          THD_WORKING_AREA_SIZE(size),
                                          thread_def->name,
                                          NORMALPRIO+thread_def->tpriority,
